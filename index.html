@@ -682,38 +682,58 @@ html, body {
     // ==========================================
     async function loadTour() {
         const container = document.getElementById('event-container');
-        try {
-            const res = await fetch(API_URL + '/events');
-            const data = await res.json();
-            
-            if(data && data.length > 0) {
-                container.innerHTML = data.map(event => {
-                    // เช็คว่าลิงก์มีค่าไหม และไม่ใช่เครื่องหมาย - หรือเว้นว่าง
-                    let isValidLink = event.link && event.link.trim() !== '' && event.link.trim() !== '-';
-                    
-                    // ถ้าลิงก์จริงให้โชว์ปุ่ม ACCESS ถ้าไม่มีให้โชว์ปุ่มเทาๆ กดไม่ได้
-                    let linkBtn = isValidLink 
-                        ? `<a href="${event.link}" target="_blank" class="cyber-btn">ACCESS</a>`
-                        : `<button class="cyber-btn" disabled style="opacity: 0.3; cursor: not-allowed; border: 1px solid var(--cyber-red-dim); background: transparent; color: #888;">UNAVAILABLE</button>`;
+        const showError = (msg) => {
+            container.innerHTML = `<div class="coord-item">ERROR: ${msg}</div>`;
+        };
+        const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-                    return `
-                    <div class="coord-item">
-                        <div class="c-date">${event.date}</div>
-                        <div class="c-details">
-                            <h3 class="c-title">${event.title}</h3>
-                            <div class="c-loc">${event.location}</div>
-                        </div>
-                        <div style="display:flex; align-items:center;">
-                            ${linkBtn}
-                        </div>
-                    </div>
-                    `;
-                }).join('');
-            } else {
+        try {
+            const res = await fetch(API_URL + '/events', { cache: 'no-store' });
+            const raw = await res.text();
+            console.log('[events] status:', res.status, 'response:', raw.slice(0, 500));
+
+            if (!res.ok) { showError(`API ${res.status} (/api/events)`); return; }
+
+            let json;
+            try { json = JSON.parse(raw); }
+            catch (e) { showError('API ไม่ได้ส่ง JSON กลับมา (เช็ค route /api/events)'); return; }
+
+            // รองรับทั้ง [..] และ {results:[..]} / {data:[..]} / {events:[..]}
+            const data = Array.isArray(json) ? json
+                : (json.results || json.data || json.events || json.rows || []);
+
+            if (!Array.isArray(data) || data.length === 0) {
                 container.innerHTML = '<div class="coord-item">ERROR: NO TARGETS FOUND</div>';
+                return;
             }
-        } catch(e) { 
-            container.innerHTML = '<div class="coord-item">ERROR: SYSTEM OFFLINE</div>'; 
+
+            container.innerHTML = data.map(event => {
+                // รองรับชื่อฟิลด์ที่ต่างกันเล็กน้อย
+                const date  = event.date  ?? event.event_date ?? event.show_date ?? '';
+                const title = event.title ?? event.name ?? event.event_name ?? '';
+                const loc   = event.location ?? event.venue ?? event.place ?? '';
+                const link  = (event.link ?? event.url ?? '').toString().trim();
+                const isValidLink = link !== '' && link !== '-';
+
+                const linkBtn = isValidLink
+                    ? `<a href="${esc(link)}" target="_blank" rel="noopener" class="cyber-btn">ACCESS</a>`
+                    : `<button class="cyber-btn" disabled style="opacity: 0.3; cursor: not-allowed; border: 1px solid var(--cyber-red-dim); background: transparent; color: #888;">UNAVAILABLE</button>`;
+
+                return `
+                <div class="coord-item">
+                    <div class="c-date">${esc(date)}</div>
+                    <div class="c-details">
+                        <h3 class="c-title">${esc(title)}</h3>
+                        <div class="c-loc">${esc(loc)}</div>
+                    </div>
+                    <div style="display:flex; align-items:center;">
+                        ${linkBtn}
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            console.error('[events] fetch failed:', e);
+            showError('SYSTEM OFFLINE (' + esc(e.message) + ')');
         }
     }
 
